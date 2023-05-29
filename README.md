@@ -57,7 +57,7 @@ $ sudo nano /etc/hosts
 ```
 $ export ROS_MASTER_URI=http://<ROS_MASTER_IP>:11311
 
-$ python3 "dir_to_marver_advance_monitoring"/marver_advance_monitoring.py
+$ python3 <dir_to_marver_advance_monitoring>/marver_advance_monitoring.py
 ```
 
 ## Published Topics:
