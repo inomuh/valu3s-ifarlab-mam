@@ -84,6 +84,9 @@ $ python3 "dir_to_marver_advance_monitoring"/marver_advance_monitoring.py
 - mam_oma (std_msgs/String)
 <p>Data of OMA</p>
 
+- task_status (std_msgs/String)
+<p>Data of system task status</p>
+
 # The Contributors
 - [Didem Özüpek Taş](https://github.com/DidemOzupekTas) 
 
