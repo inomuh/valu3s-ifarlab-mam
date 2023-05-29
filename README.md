@@ -27,29 +27,29 @@ pyqtgraph
 
 # Installation
 
-'''
+```bash
 $ git clone https://github.com/inomuh/valu3s-ifarlab-mam.git
 
 $ sudo apt install python3-pip
 
 $ pip3 install -r requirements.txt
-'''
+```
 
 # How to Start 
 
 You have to 
-'''
+```bash
 $ sudo nano /etc/hosts
-'''
+```
 add ROS_MASTER_IP and ROS MASTER NAME to the hosts file.
 example: 
 192.168.3.4 otapc
 
-'''
+```bash
 $ export ROS_MASTER_URI=http://<ROS_MASTER_IP>:11311
 
 $ python3 "dir_to_marver_advance_monitoring"/marver_advance_monitoring.py
-'''
+```
 
 # The Contributors
 - [Didem Özüpek Taş](https://github.com/DidemOzupekTas) 
