@@ -6,6 +6,7 @@ import numpy as np
 
 import rospy
 from std_msgs.msg import String, Float64MultiArray, Float32
+from adservice.msg import adrv
 
 from PyQt5 import QtCore
 
@@ -131,7 +132,6 @@ class GraphPlotOmaRV(QtCore.QThread):
         self.rate = rospy.Rate(10)
 
     def oma_rv_callback(self, msg):
-        print(self.msg)
         self.msg = 0 if "true" in msg.data else 1
 
     def run(self) -> None:
@@ -141,6 +141,31 @@ class GraphPlotOmaRV(QtCore.QThread):
         while not rospy.is_shutdown():
             self.oma_rv_signal.emit(self.msg)
             self.rate.sleep()
+
+class GraphPlotOht(QtCore.QThread):
+    """
+    OHT graph thread
+    """
+    oht_signal = QtCore.pyqtSignal(float)
+    def __init__(self):
+        super(GraphPlotOht, self).__init__()
+        self.oht_data = 0
+        rospy.Subscriber("/oht", Float32, self.oht_callback)
+        self.rate = rospy.Rate(10)
+
+    def oht_callback(self, msg):
+        self.oht_data = msg.data 
+
+    def run(self) -> None:
+        """
+        run thread
+        """
+        while not rospy.is_shutdown():
+           try:
+                self.oht_signal.emit(self.oht_data)
+                self.rate.sleep()
+           except:
+               pass
 
 class GraphPlotOhtRV(QtCore.QThread):
     """
@@ -162,6 +187,50 @@ class GraphPlotOhtRV(QtCore.QThread):
         """
         while not rospy.is_shutdown():
             self.oht_rv_signal.emit(self.msg)
+            self.rate.sleep()
+
+class GraphPlotAdrv(QtCore.QThread):
+    """
+    OHT Runtime verification graph thread
+    """
+    adrv_signal = QtCore.pyqtSignal(list)
+    def __init__(self):
+        super(GraphPlotAdrv, self).__init__()
+        self.msg = [0, 0]
+        rospy.Subscriber("adrv", adrv, self.adrv_callback)
+        self.rate = rospy.Rate(10)
+
+    def adrv_callback(self, msg):
+        self.msg = [msg.adResult, msg.attackState]
+
+    def run(self) -> None:
+        """
+        run thread
+        """
+        while not rospy.is_shutdown():
+            self.adrv_signal.emit(self.msg)
+            self.rate.sleep()
+
+class GraphPlotAdrvRV(QtCore.QThread):
+    """
+    ADRV Runtime verification graph thread
+    """
+    adrv_rv_signal = QtCore.pyqtSignal(int)
+    def __init__(self):
+        super(GraphPlotAdrvRV, self).__init__()
+        self.msg = 0
+        rospy.Subscriber("mon_adrv/monitor_verdict", String, self.adrv_rv_callback)
+        self.rate = rospy.Rate(10)
+
+    def adrv_rv_callback(self, msg):
+        self.msg = 0 if "currently_true" == msg.data else 1
+
+    def run(self) -> None:
+        """
+        run thread
+        """
+        while not rospy.is_shutdown():
+            self.adrv_rv_signal.emit(self.msg)
             self.rate.sleep()
 
 class ChkbxPub(QtCore.QThread):

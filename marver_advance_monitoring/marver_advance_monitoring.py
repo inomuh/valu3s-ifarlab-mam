@@ -6,8 +6,6 @@ import subprocess
 import json
 import datetime
 import os
-import cv2
-import numpy as np
 import pyqtgraph as pg
 
 from PyQt5 import QtCore, QtGui, QtWidgets
@@ -15,10 +13,10 @@ from PyQt5.QtCore import Qt, QEvent, QObject
 
 import rospy
 import rosnode
-from cv_bridge import CvBridge
 from sensor_msgs.msg import Image
 from std_msgs.msg import String
 from thread_class import *
+from mam_functions import *
 
 class Ui_MainWindow(QtWidgets.QMainWindow):
     """
@@ -50,13 +48,19 @@ class Ui_MainWindow(QtWidgets.QMainWindow):
             [], [], [], [], []
         self.j1_jerk, self.j2_jerk, self.j3_jerk, self.j4_jerk, self.j5_jerk, self.j6_jerk =  [],\
             [], [], [], [], []
+        self.oma_pose_obj = [self.j1_pose,self.j2_pose,self.j3_pose,self.j4_pose,self.j5_pose,self.j6_pose]
+        self.oma_vel_obj = [self.j1_vel,self.j2_vel,self.j3_vel,self.j4_vel,self.j5_vel,self.j6_vel]
+        self.oma_acc_obj = [self.j1_acc,self.j2_acc,self.j3_acc,self.j4_acc,self.j5_acc,self.j6_acc]
+        self.oma_jerk_obj = [self.j1_jerk,self.j2_jerk,self.j3_jerk,self.j4_jerk,self.j5_jerk,self.j6_jerk]
 
         self.selected_element = "joint1" # selected element for oma
         self.sub_camera = None # gazebo camera subscriber
-        self.bridge = CvBridge() # bridge used to convert camera data
         self.group_states = {} # dict used to maximize or make normal size for ui sections
         self.graph_list = [] # fills with selected graph name
         self.grid_list = [[0,0],[0,1],[1,0],[1,1]] # used for graph show and hide in grid
+        self.net_graph_list = [] # fills with selected graph name
+        self.net_graphs = []
+        self.net_grid_list = [[0],[1],[2]] # used for graph show and hide in grid
         self.log_selected_topics = [] # selected topic lists used for rosbag
 
         self.odt_x = [] # x axis data list for odt graph
@@ -65,7 +69,13 @@ class Ui_MainWindow(QtWidgets.QMainWindow):
         self.oma_x = [] # x axis data list for oma graph
         self.oma_rv_data = [[],[]] # [x,y] list for oma runtime verification data
 
-        self.oht_rv_data = [[],[]] # [x,y] list for oht runtime verification data
+        self.oht_data = [[], []]  # [x,y] list for oht data
+        # [x,y] list for oht runtime verification data
+        self.oht_rv_data = [[], []]
+
+        self.ad_result_data = [[], []] # [x,y] list for adrv data
+        self.ad_state_data = [[],[]]
+        self.adrv_rv_data = [[], []] # [x,y] list for adrv runtime verification data
 
         # logo files
         marvers_logo = 'mam_marvers_logo.png'
@@ -117,7 +127,6 @@ class Ui_MainWindow(QtWidgets.QMainWindow):
         self.label.setAlignment(QtCore.Qt.AlignCenter)
         self.label.setObjectName("label")
         self.grid_layout_8.addWidget(self.label, 1, 1, 1, 1)
-
         self.graph_group = QtWidgets.QGroupBox(self.centralwidget)
         size_policy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, \
                                            QtWidgets.QSizePolicy.Expanding)
@@ -165,6 +174,12 @@ class Ui_MainWindow(QtWidgets.QMainWindow):
         self.oht_rv_chkbx.setObjectName("oht_rv_chkbx")
         self.chkbx_grid.addWidget(self.oht_rv_chkbx, 1, 6, 1, 1)
         self.oht_rv_chkbx.hide()
+        self.adrv_chkbx = QtWidgets.QCheckBox(self.graph_group)
+        self.adrv_chkbx.setObjectName("adrv")
+        self.chkbx_grid.addWidget(self.adrv_chkbx, 1, 1, 1, 1)
+        self.adrv_rv_chkbx = QtWidgets.QCheckBox(self.graph_group)
+        self.adrv_rv_chkbx.setObjectName("adrv_rv")
+        self.chkbx_grid.addWidget(self.adrv_rv_chkbx, 2, 1, 1, 1)
 
         # Set the text style using CSS
         self.odt_graph_chkbx.setStyleSheet("QCheckBox { font-weight: normal;}")
@@ -175,6 +190,8 @@ class Ui_MainWindow(QtWidgets.QMainWindow):
         self.odt_rv_chkbx.setStyleSheet("QCheckBox { font-weight: normal;}")
         self.oht_rv_chkbx.setStyleSheet("QCheckBox { font-weight: normal;}")
         self.oma_joint_list.setStyleSheet("QComboBox { font-weight: normal;}")
+        self.adrv_chkbx.setStyleSheet("QComboBox { font-weight: normal;}")
+        self.adrv_rv_chkbx.setStyleSheet("QComboBox { font-weight: normal;}")
 
         # connect functions with objects
         self.odt_graph_chkbx.stateChanged.connect(self.get_chkbx_value)
@@ -185,16 +202,41 @@ class Ui_MainWindow(QtWidgets.QMainWindow):
         self.odt_rv_chkbx.stateChanged.connect(self.get_chkbx_value)
         self.oma_rv_chkbx.stateChanged.connect(self.get_chkbx_value)
         self.oht_rv_chkbx.stateChanged.connect(self.get_chkbx_value)
+        self.adrv_chkbx.stateChanged.connect(self.get_chkbx_value)
+        self.adrv_rv_chkbx.stateChanged.connect(self.get_chkbx_value)
         self.grid_layout.addLayout(self.chkbx_grid, 0, 0, 1, 1)
 
+        self.net_grid = QtWidgets.QGridLayout()
+        self.net_grid.setObjectName("net_grid")
         self.net_plot = pg.PlotWidget(self.graph_group)
+        net_size_policy = QtWidgets.QSizePolicy(QtWidgets.QSizePolicy.Expanding, QtWidgets.QSizePolicy.Expanding)
+        net_size_policy.setHorizontalStretch(1)
+        net_size_policy.setVerticalStretch(1)
+        net_size_policy.setHeightForWidth(self.net_plot.sizePolicy().hasHeightForWidth())
+        self.net_plot.setSizePolicy(net_size_policy)
         self.net_plot.setObjectName("net_plot")
+        # self.net_grid.addWidget(self.net_plot, 0, 0, 1, 1)
         # set up the data
         self.net_data = [[],[]]
         self.graph_net = self.net_plot.plot(pen='r')
         # customize the plot
         self.net_plot.setTitle("Network Traffic")
         self.net_plot.setLabel("left", "Frequency")
+
+        self.adrv_plot = pg.PlotWidget(self.graph_group)
+        self.adrv_plot.setSizePolicy(net_size_policy)
+        self.adrv_plot.setObjectName("adrv_plot")
+        self.adrv_plot.addLegend()
+        self.graph_result = self.adrv_plot.plot(pen='b', name="Result")
+        self.graph_state = self.adrv_plot.plot(pen='g', name="Attack State")  
+        # self.net_grid.addWidget(self.adrv_plot, 0, 1, 1, 1)
+        self.adrv_rv_plot = pg.PlotWidget(self.graph_group)
+        self.adrv_rv_plot.setSizePolicy(net_size_policy)
+        self.adrv_rv_plot.setObjectName("adrv_rv_plot")
+        self.graph_adrv_rv = self.adrv_rv_plot.plot(pen='r')
+        # self.net_grid.addWidget(self.adrv_rv_plot, 0, 2, 1, 1)
+        self.adrv_rv_plot.setTitle("AD RV Status")
+        self.adrv_plot.setTitle("Anomaly Detection")
 
         self.odt_grid = QtWidgets.QGridLayout()
         self.odt_grid.setObjectName("odt_grid")
@@ -233,11 +275,14 @@ class Ui_MainWindow(QtWidgets.QMainWindow):
         self.arr_j4 = self.oma_plot.plot(pen='g', name="joint4")
         self.arr_j5 = self.oma_plot.plot(pen='y', name="joint5")
         self.arr_j6 = self.oma_plot.plot(pen='c', name="joint6")
+        self.oma_array = [self.arr_j1,self.arr_j2,self.arr_j3,self.arr_j4,self.arr_j5,self.arr_j6]
 
         self.oht_grid = QtWidgets.QGridLayout()
         self.oht_grid.setObjectName("oht_grid")
         self.oht_plot = pg.PlotWidget(self.graph_group)
         self.oht_plot.setObjectName("oht_plot")
+        self.oht_plot.setTitle("OHT Min Distance")
+        self.graph_oht = self.oht_plot.plot(pen='b')
         self.oht_grid.addWidget(self.oht_plot, 0, 0, 1, 1)
         self.oht_rv_plot = pg.PlotWidget(self.graph_group)
         self.oht_rv_plot.setObjectName("oht_rv_plot")
@@ -249,7 +294,7 @@ class Ui_MainWindow(QtWidgets.QMainWindow):
         self.network_area = QtWidgets.QScrollArea()
         self.network_area.setBackgroundRole(QtGui.QPalette.Dark)
         self.network_area.setWidgetResizable(True)
-        self.network_area.setWidget(self.net_plot)
+        self.network_area.setLayout(self.net_grid)
         self.odt_area = QtWidgets.QScrollArea()
         self.odt_area.setBackgroundRole(QtGui.QPalette.Dark)
         self.odt_area.setWidgetResizable(True)
@@ -335,7 +380,7 @@ class Ui_MainWindow(QtWidgets.QMainWindow):
         # Set the text style using CSS
         self.digital_twin_cam_topics_list.setStyleSheet("QComboBox { font-weight: normal;}")
         self.grid_layout_4.addWidget(self.digital_twin_cam_topics_list, 1, 2, 1, 1)
-        self.camera_combo_box_clicked()
+        camera_combo_box_clicked(self.digital_twin_cam_topics_list)
         self.digital_twin_cam_topics_list.currentIndexChanged.connect(self.camera_topic_selected)
 
         self.digital_twin_cam = QtWidgets.QFrame(self.digital_twin_group)
@@ -439,11 +484,26 @@ class Ui_MainWindow(QtWidgets.QMainWindow):
         self.class_oma_rv.oma_rv_signal.connect(self.update_plot_oma_rv)
         self.class_oma_rv.start()
         self.oma_rv_graph_count = 0
-
+        
+        self.class_oht = GraphPlotOht()
+        self.class_oht.oht_signal.connect(self.update_plot_oht)
+        self.class_oht.start()
+        self.oht_graph_count = 0
+        
         self.class_oht_rv = GraphPlotOhtRV()
         self.class_oht_rv.oht_rv_signal.connect(self.update_plot_oht_rv)
         self.class_oht_rv.start()
         self.oht_rv_graph_count = 0
+
+        self.class_adrv = GraphPlotAdrv()
+        self.class_adrv.adrv_signal.connect(self.update_plot_adrv)
+        self.class_adrv.start()
+        self.adrv_graph_count = 0
+
+        self.class_adrv_rv = GraphPlotAdrvRV()
+        self.class_adrv_rv.adrv_rv_signal.connect(self.update_plot_adrv_rv)
+        self.class_adrv_rv.start()
+        self.adrv_rv_graph_count = 0
         #########
 
         # Checkbox status publish thread
@@ -465,8 +525,10 @@ class Ui_MainWindow(QtWidgets.QMainWindow):
         main_window.setStatusBar(self.statusbar)
 
         # set selected on combobox
-        self.odt_graph_chkbx.setChecked(True)
+        # self.odt_graph_chkbx.setChecked(True)
         self.network_traffic_graph_chkbx.setChecked(True)
+        self.adrv_chkbx.setChecked(True)
+        self.adrv_rv_chkbx.setChecked(True)
         self.digital_twin_cam_topics_list.setCurrentIndex(0)
         self.camera_topic_selected("outside1_camera/image_raw")
         self.custom_font.setBold(True)
@@ -485,6 +547,8 @@ class Ui_MainWindow(QtWidgets.QMainWindow):
         self.odt_rv_chkbx.setText(_translate("MainWindow", "ODT_RV_Stat"))
         self.oma_rv_chkbx.setText(_translate("MainWindow", "OMA_RV_Stat"))
         self.oht_rv_chkbx.setText(_translate("MainWindow", "OHT_RV_Stat"))
+        self.adrv_chkbx.setText(_translate("MainWindow", "Adrv"))
+        self.adrv_rv_chkbx.setText(_translate("MainWindow", "Ad_RV_Stat"))
         self.log_group.setTitle(_translate("MainWindow", "Record"))
         self.log_group.setFont(self.custom_font)
         self.label_4.setText(_translate("MainWindow", "Bag name:"))
@@ -505,28 +569,15 @@ class Ui_MainWindow(QtWidgets.QMainWindow):
         odt_json ros callback function
         """
         json_data = json.loads(msg.data)
-        self.dist0_val = self.calculate_dist(json_data["dist0"])
-        self.dist1_val = self.calculate_dist(json_data["dist1"])
-        self.dist2_val = self.calculate_dist(json_data["dist2"])
-        self.dist3_val = self.calculate_dist(json_data["dist3"])
+        self.dist0_val = calculate_dist(json_data["dist0"])
+        self.dist1_val = calculate_dist(json_data["dist1"])
+        self.dist2_val = calculate_dist(json_data["dist2"])
+        self.dist3_val = calculate_dist(json_data["dist3"])
         data = "  dist-0: " + str(self.dist0_val) + "\n" + "  dist-1: " + str(self.dist1_val) + \
             "\n" + "  dist-2: " + str(self.dist2_val) + "\n" + "  dist-3: " + str(self.dist3_val) \
             + "\n"
         self.odt_text_label.setText(data)
         self.odt_text_label.setAlignment(Qt.AlignCenter)
-
-    def calculate_dist(self, data):
-        """
-        Calculation distance model position
-        """
-        fin_pose = np.array([float(data["fin_pose"]["x"]), \
-                      float(data["fin_pose"]["y"]) -0.26, \
-                      float(data["fin_pose"]["z"])])
-        strt_pose = np.array([float(data["strt_pose"]["x"]), \
-                      float(data["strt_pose"]["y"]) -0.26, \
-                      float(data["strt_pose"]["z"])])
-        dist = str(round(np.linalg.norm(fin_pose-strt_pose),2))
-        return dist
 
     def eventFilter(self, source: QObject, event: QEvent) -> bool:
         """
@@ -534,38 +585,17 @@ class Ui_MainWindow(QtWidgets.QMainWindow):
         """
         if event.type() == QtCore.QEvent.MouseButtonDblClick:
             if source.objectName() == 'digital_twin_group':
-                if self.group_states["digital_twin_group"] == "Normal":
-                    self.graph_group.hide()
-                    self.environment_group.hide()
-                    self.log_group.hide()
-                    self.group_states["digital_twin_group"] = "Maximized"
-                else:
-                    self.graph_group.show()
-                    self.environment_group.show()
-                    self.log_group.show()
-                    self.group_states["digital_twin_group"] = "Normal"
-            if source.objectName() == 'environment_group':
-                if self.group_states["environment_group"] == "Normal":
-                    self.graph_group.hide()
-                    self.digital_twin_group.hide()
-                    self.log_group.hide()
-                    self.group_states["environment_group"] = "Maximized"
-                else:
-                    self.graph_group.show()
-                    self.digital_twin_group.show()
-                    self.log_group.show()
-                    self.group_states["environment_group"] = "Normal"
-            if source.objectName() == 'graph_group':
-                if self.group_states["graph_group"] == "Normal":
-                    self.digital_twin_group.hide()
-                    self.environment_group.hide()
-                    self.log_group.hide()
-                    self.group_states["graph_group"] = "Maximized"
-                else:
-                    self.digital_twin_group.show()
-                    self.environment_group.show()
-                    self.log_group.show()
-                    self.group_states["graph_group"] = "Normal"
+                group_array = [self.graph_group, self.environment_group,self.log_group]
+                self.group_states["digital_twin_group"] = group_show_func(group_array, \
+                                                        self.group_states["digital_twin_group"])
+            elif source.objectName() == 'environment_group':
+                group_array = [self.graph_group, self.digital_twin_group,self.log_group]
+                self.group_states["environment_group"] = group_show_func(group_array, \
+                                                        self.group_states["environment_group"])
+            elif source.objectName() == 'graph_group':
+                group_array = [self.environment_group, self.digital_twin_group,self.log_group]
+                self.group_states["graph_group"] = group_show_func(group_array, \
+                                                    self.group_states["graph_group"])
             else:
                 return super(Ui_MainWindow, self).eventFilter(source, event)
             return True
@@ -577,7 +607,7 @@ class Ui_MainWindow(QtWidgets.QMainWindow):
         Gazebo camera callback
         """
         try:
-            self.draw_frames(msg, self.digital_twin_cam, self.digital_twin_cam_label)
+            draw_frames(msg, self.digital_twin_cam, self.digital_twin_cam_label)
         except:
             pass
 
@@ -586,24 +616,7 @@ class Ui_MainWindow(QtWidgets.QMainWindow):
         Environment camera callback
         """
         try:
-            self.draw_frames(msg, self.env_cam, self.env_cam_label)
-        except:
-            pass
-
-    def camera_combo_box_clicked(self):
-        """
-        Gazebo camera combobox click function
-        """
-        try:
-            # update rostopic list
-            self.digital_twin_cam_topics_list.clear()
-            topic_list = []
-            topic_list_dict = dict(rospy.get_published_topics())
-            for key in topic_list_dict.keys():
-                if topic_list_dict[key] == 'sensor_msgs/Image' and "outside" in key:
-                    topic_list.append(key)
-            topic_list.sort()
-            self.digital_twin_cam_topics_list.addItems(topic_list)
+            draw_frames(msg, self.env_cam, self.env_cam_label)
         except:
             pass
 
@@ -617,26 +630,6 @@ class Ui_MainWindow(QtWidgets.QMainWindow):
             if self.sub_camera is not None:
                 self.sub_camera.unregister()
             self.sub_camera = rospy.Subscriber(selected_topic, Image, self.dt_camera_callback)
-
-    def draw_frames(self, msg, object, label_object):
-        """
-        Show frame of camera on ui
-        """
-        try:
-            width = object.width()
-            height = object.height()
-            label_object.resize(width, height)
-            camera_map = cv2.resize(self.bridge.imgmsg_to_cv2(msg, \
-                                desired_encoding="passthrough"), (width,height))
-            self.bridge.cv2_to_imgmsg
-            bytesPerLine = int(camera_map.nbytes / height)
-            qimg = QtGui.QImage(camera_map.data, camera_map.shape[1], camera_map.shape[0], \
-                          bytesPerLine, QtGui.QImage.Format_RGB888)
-            pixmap = QtGui.QPixmap.fromImage(qimg)
-            label_object.setPixmap(pixmap)
-            label_object.show()
-        except Exception as exp:
-            print(exp)
 
     def task_status_callback(self, msg):
         """
@@ -731,38 +724,22 @@ class Ui_MainWindow(QtWidgets.QMainWindow):
             self.j6_vel.append(msg.data[11])
             self.j6_acc.append(msg.data[17])
             self.j6_jerk.append(msg.data[23])
-
+            
             if self.selected_element == "position":
-                self.arr_j1.setData(self.oma_x, self.j1_pose)
-                self.arr_j2.setData(self.oma_x, self.j2_pose)
-                self.arr_j3.setData(self.oma_x, self.j3_pose)
-                self.arr_j4.setData(self.oma_x, self.j4_pose)
-                self.arr_j5.setData(self.oma_x, self.j5_pose)
-                self.arr_j6.setData(self.oma_x, self.j6_pose)
+                for i in range(len(self.oma_array)):
+                    self.oma_array[i].setData(self.oma_x, self.oma_pose_obj[i])
                 self.oma_plot.setTitle("position")
             if self.selected_element == "velocity":
-                self.arr_j1.setData(self.oma_x, self.j1_vel)
-                self.arr_j2.setData(self.oma_x, self.j2_vel)
-                self.arr_j3.setData(self.oma_x, self.j3_vel)
-                self.arr_j4.setData(self.oma_x, self.j4_vel)
-                self.arr_j5.setData(self.oma_x, self.j5_vel)
-                self.arr_j6.setData(self.oma_x, self.j6_vel)
+                for i in range(len(self.oma_array)):
+                    self.oma_array[i].setData(self.oma_x, self.oma_vel_obj[i])
                 self.oma_plot.setTitle("velocity")
             if self.selected_element == "acceleration":
-                self.arr_j1.setData(self.oma_x, self.j1_acc)
-                self.arr_j2.setData(self.oma_x, self.j2_acc)
-                self.arr_j3.setData(self.oma_x, self.j3_acc)
-                self.arr_j4.setData(self.oma_x, self.j4_acc)
-                self.arr_j5.setData(self.oma_x, self.j5_acc)
-                self.arr_j6.setData(self.oma_x, self.j6_acc)
+                for i in range(len(self.oma_array)):
+                    self.oma_array[i].setData(self.oma_x, self.oma_acc_obj[i])
                 self.oma_plot.setTitle("acceleration")
             if self.selected_element == "jerk":
-                self.arr_j1.setData(self.oma_x, self.j1_jerk)
-                self.arr_j2.setData(self.oma_x, self.j2_jerk)
-                self.arr_j3.setData(self.oma_x, self.j3_jerk)
-                self.arr_j4.setData(self.oma_x, self.j4_jerk)
-                self.arr_j5.setData(self.oma_x, self.j5_jerk)
-                self.arr_j6.setData(self.oma_x, self.j6_jerk)
+                for i in range(len(self.oma_array)):
+                    self.oma_array[i].setData(self.oma_x, self.oma_jerk_obj[i])
                 self.oma_plot.setTitle("jerk")
 
     def update_plot_oma_rv(self, data):
@@ -777,6 +754,18 @@ class Ui_MainWindow(QtWidgets.QMainWindow):
             self.oma_rv_plot.setXRange(self.oma_rv_graph_count-100,self.oma_rv_graph_count)
         self.graph_oma_rv.setData(self.oma_rv_data[0], self.oma_rv_data[1])
 
+    def update_plot_oht(self, data):
+        """
+        Plotting OHT data
+        """
+        self.oht_graph_count += 1
+        # add the new data to the plot
+        self.oht_data[0].append(self.oht_graph_count)
+        self.oht_data[1].append(data)
+        if self.oht_graph_count > 100:
+            self.oht_plot.setXRange(self.oht_graph_count-100,self.oht_graph_count)
+        self.graph_oht.setData(self.oht_data[0], self.oht_data[1])
+
     def update_plot_oht_rv(self, data):
         """
         Plotting OHT runtim verification data
@@ -788,6 +777,33 @@ class Ui_MainWindow(QtWidgets.QMainWindow):
         if self.oht_rv_graph_count > 100:
             self.oht_rv_plot.setXRange(self.oht_rv_graph_count-100,self.oht_rv_graph_count)
         self.graph_oht_rv.setData(self.oht_rv_data[0], self.oht_rv_data[1])
+
+    def update_plot_adrv(self, data):
+        """
+        Plotting Adrv data
+        """       
+        self.adrv_graph_count += 1
+        # add the new data to the plot
+        self.ad_result_data[0].append(self.adrv_graph_count)
+        self.ad_result_data[1].append(data[0])
+        self.ad_state_data[0].append(self.adrv_graph_count)
+        self.ad_state_data[1].append(data[1])
+        if self.adrv_graph_count > 100:
+            self.adrv_plot.setXRange(self.adrv_graph_count-100,self.adrv_graph_count)
+        self.graph_result.setData(self.ad_result_data[0], self.ad_result_data[1])
+        self.graph_state.setData(self.ad_state_data[0], self.ad_state_data[1])
+
+    def update_plot_adrv_rv(self, data):
+        """
+        Plotting adrv runtim verification data
+        """
+        self.adrv_rv_graph_count += 1
+        # add the new data to the plot
+        self.adrv_rv_data[0].append(self.adrv_rv_graph_count)
+        self.adrv_rv_data[1].append(data)
+        if self.adrv_rv_graph_count > 100:
+            self.adrv_rv_plot.setXRange(self.adrv_rv_graph_count-100,self.adrv_rv_graph_count)
+        self.graph_adrv_rv.setData(self.adrv_rv_data[0], self.adrv_rv_data[1])
 
     def on_button_clicked(self):
         """
@@ -837,6 +853,8 @@ class Ui_MainWindow(QtWidgets.QMainWindow):
         network_traffic = self.network_traffic_graph_chkbx.isChecked()
         odt_cylinder = self.odt_cylinder.isChecked()
         odt_joint = self.odt_joint_dist.isChecked()
+        adrv_graph = self.adrv_chkbx.isChecked()
+        adrv_rv_graph = self.adrv_rv_chkbx.isChecked()
 
         if odt_graph:
             self.odt_rv_chkbx.show()
@@ -844,7 +862,8 @@ class Ui_MainWindow(QtWidgets.QMainWindow):
                 self.graph_list.append("odt")
                 self.odt_rv_chkbx.setChecked(True)
         else:
-            self.graph_funcion(self.odt_area, "odt", "hide")
+            self.graph_list = graph_funcion(self.grid_layout, self.graph_list, \
+                                            self.grid_list, self.odt_area, "odt", "hide")
             self.odt_rv_chkbx.hide()
 
         if oma_graph:
@@ -855,7 +874,8 @@ class Ui_MainWindow(QtWidgets.QMainWindow):
                 self.graph_list.append("oma")
                 self.oma_rv_chkbx.setChecked(True)
         else:
-            self.graph_funcion(self.oma_area, "oma", "hide")
+            self.graph_list = graph_funcion(self.grid_layout, self.graph_list, \
+                                            self.grid_list, self.oma_area, "oma", "hide")
             self.oma_joint_list.hide()
             self.oma_rv_chkbx.hide()
 
@@ -866,18 +886,60 @@ class Ui_MainWindow(QtWidgets.QMainWindow):
                 self.oht_rv_chkbx.setChecked(True)
         else:
             self.oht_rv_chkbx.hide()
-            self.graph_funcion(self.oht_area, "oht", "hide")
+            self.graph_list = graph_funcion(self.grid_layout, self.graph_list, \
+                                            self.grid_list, self.oht_area, "oht", "hide")
+        
+        self.net_graphs = []
 
-        if network_traffic:
+        if network_traffic or adrv_graph or adrv_rv_graph:
             if "net" not in self.graph_list:
                 self.graph_list.append("net")
-        else:
-            self.graph_funcion(self.network_area, "net", "hide")
+            # print(self.net_grid.geometry.width())
 
-        self.graph_funcion(self.odt_area, "odt", "show")
-        self.graph_funcion(self.oma_area, "oma", "show")
-        self.graph_funcion(self.oht_area, "oht", "show")
-        self.graph_funcion(self.network_area, "net", "show")
+            if network_traffic:
+                if "freq" not in self.net_graph_list:
+                    self.net_graphs.append(self.net_plot)
+            else:
+                try:
+                    self.net_plot.hide()
+                    self.net_grid.removeWidget(self.net_plot)
+                    self.net_graph_list.remove("freq")
+                except:
+                    pass
+
+            if adrv_graph:
+                if "adrv" not in self.net_graph_list:
+                    self.net_graphs.append(self.adrv_plot)
+            else:
+                try:
+                    self.adrv_plot.hide()
+                    self.net_grid.removeWidget(self.adrv_plot)
+                    self.net_graph_list.remove("adrv")
+                except:
+                    pass
+            if adrv_rv_graph:
+                if "adrv_rv" not in self.net_graph_list:
+                    self.net_graphs.append(self.adrv_rv_plot)
+            else:
+                try:
+                    self.adrv_rv_plot.hide()
+                    self.net_grid.removeWidget(self.adrv_rv_plot)
+                    self.net_graph_list.remove("adrv_rv")
+                except:
+                    pass
+            net_graph_funcion(self.net_graphs, self.net_grid)
+        else:
+            self.graph_list = graph_funcion(self.grid_layout, self.graph_list, self.grid_list, \
+                                            self.network_area, "net", "hide")
+
+        self.graph_list = graph_funcion(self.grid_layout, self.graph_list, self.grid_list, \
+            self.odt_area, "odt", "show")
+        self.graph_list = graph_funcion(self.grid_layout, self.graph_list, self.grid_list, \
+            self.oma_area, "oma", "show")
+        self.graph_list = graph_funcion(self.grid_layout, self.graph_list, self.grid_list, \
+            self.oht_area, "oht", "show")
+        self.graph_list = graph_funcion(self.grid_layout, self.graph_list, self.grid_list, \
+            self.network_area, "net", "show")
         odt_rv_graph = self.odt_rv_chkbx.isChecked()
         oma_rv_graph = self.oma_rv_chkbx.isChecked()
         oht_rv_graph = self.oht_rv_chkbx.isChecked()
@@ -895,25 +957,6 @@ class Ui_MainWindow(QtWidgets.QMainWindow):
             str(oht_graph).lower() + ', "network":' + str(network_traffic).lower() + \
             ', "oma":' + str(oma_graph).lower() + '}, "gui":{"cylinder":' + \
             str(odt_cylinder).lower() + ',"joint_dist":' + str(odt_joint).lower() + '}}'
-
-    def graph_funcion(self, graph_element, name, func):
-        """
-        Function is used to hide or show selected graph
-        """
-        if func == "hide":
-            try:
-                graph_element.hide()
-                self.graph_list.remove(name)
-            except Exception as expt1:
-                pass
-        elif func == "show":
-            try:
-                index = self.graph_list.index(name)
-                self.grid_layout.addWidget(graph_element, self.grid_list[index][0]+1, \
-                                           self.grid_list[index][1])
-                graph_element.show()
-            except Exception as expt2:
-                pass
 
     def filter_checkboxes(self, search_text):
         """
