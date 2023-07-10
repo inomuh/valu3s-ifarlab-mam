@@ -56,7 +56,27 @@ $ sudo nano /etc/hosts
 
 ```
 $ export ROS_MASTER_URI=http://<ROS_MASTER_IP>:11311
+```
+<p>You should build adservice ros package in your workspace. If you don't have any workspace create catkin_ws and src folders. </p>
 
+```
+$ mkdir -p catkin_ws/src
+```
+<p>Cut and paste adservice folder in to src folder than build catkin_ws workspace.</p>
+
+```
+$ cd ~/catkin_ws && catkin_make
+```
+<p>You should source ros and your workspace from your bashrc file.</p>
+
+```
+$ echo "source /opt/ros/noetic/setup.bash" >> ~/.bashrc
+$ echo "source ~/catkin_ws/devel/setup.bash" >> ~/.bashrc
+```
+
+<p>After these steps you can run MAM at your new terminal.</p>
+
+```
 $ python3 <dir_to_marver_advance_monitoring>/marver_advance_monitoring.py
 ```
 
@@ -81,11 +101,29 @@ $ python3 <dir_to_marver_advance_monitoring>/marver_advance_monitoring.py
 - odt_json (std_msgs/String)
 <p>Data of ODT</p>
 
+- mon_odt/monitor_verdict (std_msgs/String)
+<p>ODT Runtime verification</p>
+
 - mam_oma (std_msgs/String)
 <p>Data of OMA</p>
 
+- mon_oma/monitor_verdict (std_msgs/String)
+<p>OMA Runtime verification</p>
+
 - task_status (std_msgs/String)
 <p>Data of system task status</p>
+
+- adrv (adservice/adrv)
+<p>Data of Adrv</p>
+
+- mon_adrv/monitor_verdict (std_msgs/String)
+<p>Adrv Runtime verification</p>
+
+- oht (std_msgs/Float32)
+<p>Closest distance of human joint to robot joint</p>
+
+- mon_oht/monitor_verdict
+<p>OHT Runtime verification</p>
 
 # The Contributors
 - [Didem Özüpek Taş](https://github.com/DidemOzupekTas) 
